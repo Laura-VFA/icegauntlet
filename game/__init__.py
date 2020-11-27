@@ -14,6 +14,13 @@ import pyxel
 import game.pyxeltools
 from game.common import LIFE, LEVEL_COUNT
 
+import Ice
+Ice.loadSlice('../icegauntlet_map_management/IceGauntlet.ice')
+import IceGauntlet
+
+import json
+
+
 class GameState:
     '''Game state base class'''
     def __init__(self, parent=None):
@@ -59,9 +66,9 @@ class PlayerData:
     def steer_id(self):
         return self.attribute['steer_id']
 
-
+'''
 class DungeonMap:
-    '''Store a list of rooms'''
+    #Store a list of rooms
     def __init__(self, levels):
         self._levels_ = levels
         self._levels_.reverse()
@@ -74,6 +81,29 @@ class DungeonMap:
     @property
     def finished(self):
         return not self._levels_
+'''
+class DungeonMap(Ice.Application):
+    #Store a list of rooms
+    def run(self, mapserver_proxy):
+        mapserver_proxy = self.communicator().stringToProxy(mapserver_proxy)
+        self.mapServer = IceGauntlet.MapServerPrx.checkedCast(mapserver_proxy)
+        
+        self.shutdownOnInterrupt()
+        self.communicator().waitForShutdown()
+        
+
+    @property
+    def next_room(self):
+        return json.loads(self.mapServer.getRoom())
+
+    @property
+    def finished(self):
+        try:
+            self.mapServer.getRoom()
+            return False
+        except IceGauntlet.RoomNotExists:
+            return True
+
 
 
 class Game:
