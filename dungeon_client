@@ -10,8 +10,9 @@ import sys
 import atexit
 import logging
 import argparse
+import json
 import Ice
-Ice.loadSlice('IceGauntlet.ice')
+Ice.loadSlice('icegauntlet.ice')
 import IceGauntlet
 import game
 import game.common
@@ -26,27 +27,38 @@ BAD_COMMAND_LINE = 1
 DEFAULT_ROOM = 'tutorial.json'
 DEFAULT_HERO = game.common.HEROES[0]
 
-class RemoteDungeonMap(Ice.Application, game.DungeonMap):
+class RemoteDungeonMap(Ice.Application):
     '''Store a list of rooms'''
-    def run (self, args):
-        mapserver_proxy = self.communicator().stringToProxy(self.proxy)
-        self.mapServer = IceGauntlet.DungeonPrx.checkedCast(mapserver_proxy)
-        if not self.mapServer:
-            raise RuntimeError('Invalid proxy')
-        return 0
+    def __init__(self, dungeon_proxy, hero):
+        self.dungeon_proxy=dungeon_proxy
+        self.hero = hero
 
-    def __init__(self, proxy):
-        self.proxy=proxy
+    def run (self, args):
+        dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
+        self.dungeon_servant = IceGauntlet.DungeonPrx.checkedCast(dungeon_proxy)
+        if not self.dungeon_servant:
+            raise RuntimeError('Invalid proxy')
+
+        self.shutdownOnInterrupt()
+
+        gauntlet = game.Game(self.hero, self)
+        gauntlet.add_state(game.screens.TileScreen, game.common.INITIAL_SCREEN)
+        gauntlet.add_state(game.screens.StatsScreen, game.common.STATUS_SCREEN)
+        gauntlet.add_state(game.screens.GameScreen, game.common.GAME_SCREEN)
+        gauntlet.add_state(game.screens.GameOverScreen, game.common.GAME_OVER_SCREEN)
+        gauntlet.add_state(game.screens.GoodEndScreen, game.common.GOOD_END_SCREEN)
+        gauntlet.start()
+
+        #self.communicator().waitForShutdown()
 
     @property
     def next_room(self):
-        result= self.mapServer.getRoom()
-        room = json.loads(result)
-        return room
+        room_data= self.dungeon_servant.getRoom()
+        return room_data
 
     @property
     def finished(self):
-        return false
+        return False
 
 @atexit.register
 # pylint: disable=W0613
@@ -75,8 +87,9 @@ def main():
         return BAD_COMMAND_LINE
 
     game.pyxeltools.initialize()
-    dungeon = RemoteDungeonMap(user_options.PROXY)
+    dungeon = RemoteDungeonMap(user_options.PROXY, user_options.hero)
     dungeon.main(sys.argv)
+    '''
     gauntlet = game.Game(user_options.hero, dungeon)
     gauntlet.add_state(game.screens.TileScreen, game.common.INITIAL_SCREEN)
     gauntlet.add_state(game.screens.StatsScreen, game.common.STATUS_SCREEN)
@@ -84,7 +97,7 @@ def main():
     gauntlet.add_state(game.screens.GameOverScreen, game.common.GAME_OVER_SCREEN)
     gauntlet.add_state(game.screens.GoodEndScreen, game.common.GOOD_END_SCREEN)
     gauntlet.start()
-
+    '''
     return EXIT_OK
 
 
