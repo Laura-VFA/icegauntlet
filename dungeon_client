@@ -3,28 +3,30 @@
 # pylint: disable=W1203
 
 '''
-    ICE Gauntlet LOCAL GAME
+    ICE Gauntlet REMOTE GAME
 '''
 
 import sys
 import atexit
-import logging
 import argparse
-import json
 import Ice
-Ice.loadSlice('icegauntlet.ice')
-import IceGauntlet
 import game
 import game.common
 import game.screens
 import game.pyxeltools
 import game.orchestration
 
+Ice.loadSlice('icegauntlet.ice')
+# pylint: disable=E0401
+# pylint: disable=C0413
+import IceGauntlet
+# pylint: enable=E0401
+# pylint: enable=C0413
+
 
 EXIT_OK = 0
 BAD_COMMAND_LINE = 1
 
-DEFAULT_ROOM = 'tutorial.json'
 DEFAULT_HERO = game.common.HEROES[0]
 
 class RemoteDungeonMap(Ice.Application):
@@ -32,6 +34,7 @@ class RemoteDungeonMap(Ice.Application):
     def __init__(self, dungeon_proxy, hero):
         self.dungeon_proxy=dungeon_proxy
         self.hero = hero
+        self.dungeon_servant = None
 
     def run (self, args):
         dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
@@ -41,23 +44,28 @@ class RemoteDungeonMap(Ice.Application):
 
         self.shutdownOnInterrupt()
 
+        game.pyxeltools.initialize()
         gauntlet = game.Game(self.hero, self)
         gauntlet.add_state(game.screens.TileScreen, game.common.INITIAL_SCREEN)
         gauntlet.add_state(game.screens.StatsScreen, game.common.STATUS_SCREEN)
         gauntlet.add_state(game.screens.GameScreen, game.common.GAME_SCREEN)
         gauntlet.add_state(game.screens.GameOverScreen, game.common.GAME_OVER_SCREEN)
         gauntlet.add_state(game.screens.GoodEndScreen, game.common.GOOD_END_SCREEN)
-        gauntlet.start()
 
-        #self.communicator().waitForShutdown()
+        try:
+            gauntlet.start()
+        except SystemExit:
+            pass
 
     @property
     def next_room(self):
+        '''To obtain a new room'''
         room_data= self.dungeon_servant.getRoom()
         return room_data
 
     @property
     def finished(self):
+        '''To know if the game has finished'''
         return False
 
 @atexit.register
@@ -86,22 +94,11 @@ def main():
     if not user_options:
         return BAD_COMMAND_LINE
 
-    game.pyxeltools.initialize()
     dungeon = RemoteDungeonMap(user_options.PROXY, user_options.hero)
     dungeon.main(sys.argv)
-    '''
-    gauntlet = game.Game(user_options.hero, dungeon)
-    gauntlet.add_state(game.screens.TileScreen, game.common.INITIAL_SCREEN)
-    gauntlet.add_state(game.screens.StatsScreen, game.common.STATUS_SCREEN)
-    gauntlet.add_state(game.screens.GameScreen, game.common.GAME_SCREEN)
-    gauntlet.add_state(game.screens.GameOverScreen, game.common.GAME_OVER_SCREEN)
-    gauntlet.add_state(game.screens.GoodEndScreen, game.common.GOOD_END_SCREEN)
-    gauntlet.start()
-    '''
+
     return EXIT_OK
 
 
 if __name__ == '__main__':
-
     sys.exit(main())
-
