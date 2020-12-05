@@ -60,8 +60,8 @@ class RemoteDungeonMap(Ice.Application):
     @property
     def next_room(self):
         '''To obtain a new room'''
-        room_data= self.dungeon_servant.getRoom()
-        return room_data
+        return self.dungeon_servant.getRoom()
+
 
     @property
     def finished(self):
