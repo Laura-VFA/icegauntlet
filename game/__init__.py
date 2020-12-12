@@ -7,12 +7,15 @@
 '''
 
 
+import copy
 import uuid
-
-import pyxel
+import random
 
 import game.pyxeltools
-from game.common import LIFE, LEVEL_COUNT
+from game.common import LIFE, LEVEL_COUNT, AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE, HEROES,\
+    OBJECT_CLASS, OBJECT_TYPE, IDENTIFIER
+from game.pyxeltools import TILE_SIZE, load_json_map
+
 
 class GameState:
     '''Game state base class'''
@@ -42,18 +45,24 @@ class GameState:
 
 class PlayerData:
     '''Store player data accross the states of the game'''
-    def __init__(self, hero_class, steer='Player1', initial_attributes=None):
+    def __init__(self, hero_class, steer='Player1', initial_attributes=None, identifier=None):
         self.attribute = {
-            'hero_class': hero_class,
+            OBJECT_CLASS: 'hero',
+            OBJECT_TYPE: hero_class,
             'steer_id': steer,
+            'identifier': identifier or str(uuid.uuid4()),
             LEVEL_COUNT: 1
         }
         if initial_attributes:
             self.attribute.update(initial_attributes)
     
     @property
+    def identifier(self):
+        return self.attribute[IDENTIFIER]
+
+    @property
     def hero_class(self):
-        return self.attribute['hero_class']
+        return self.attribute[OBJECT_TYPE]
 
     @property
     def steer_id(self):
@@ -63,26 +72,78 @@ class PlayerData:
 class DungeonMap:
     '''Store a list of rooms'''
     def __init__(self, levels):
-        self._levels_ = levels
+        self._original_ = levels
+        self.reset()
+
+    def reset(self):
+        self._levels_ = copy.copy(self._original_)
         self._levels_.reverse()
+        self._current_area_ = None
 
     @property
-    def next_room(self):
+    def next_area(self):
         if self._levels_:
-            return self._levels_.pop()
+            self._current_area_ = LocalArea(self._levels_.pop())
+            return self._current_area_
 
     @property
     def finished(self):
         return not self._levels_
 
+    def abandon_area(self):
+        self._current_area_.abandon()
+
+
+class LocalArea:
+    def __init__(self, level):
+        self.event_handler = self.__discard_event__
+        self.roomName, self.author, roomData = load_json_map(level)
+        self.objects = []
+        self.roomData = []
+        y = 0
+        for row in roomData:
+            x = 0
+            filteredRow = []
+            for tile in row:
+                if (tile in AVAILABLE_OBJECT_IDS):
+                    filteredRow.append(EMPTY_TILE)
+                    self.objects.append((str(uuid.uuid4()), tile, (x, y)))
+                elif (tile == NULL_TILE):
+                    filteredRow.append(EMPTY_TILE)
+                else:
+                    filteredRow.append(tile)
+                x += 1
+            y += 1
+            self.roomData.append(filteredRow)
+
+    def getMap(self):
+        return self.roomName, self.author, self.roomData
+
+    def getObjects(self):
+        return self.objects
+
+    def getActors(self):
+        return []
+    
+    def fire_event(self, event, only_local=False):
+        if not only_local:
+            self.event_handler(event)
+
+    def abandon(self):
+        pass
+
+    def __discard_event__(self, event):
+        pass
+
 
 class Game:
     '''This class wraps the game loop created by pyxel'''
-    def __init__(self, hero_class, dungeon):
-        self._identifier_ = str(uuid.uuid4())
+    def __init__(self, hero_class, dungeon, identifier=None):
+        self._identifier_ = identifier or str(uuid.uuid4())
         self._states_ = {}
         self._current_state_ = None
-        self._player_ = PlayerData(hero_class)
+        self._initial_state_ = None
+        self._player_ = PlayerData(hero_class, identifier=self._identifier_)
         self._dungeon_ = dungeon
 
     @property
@@ -104,11 +165,16 @@ class Game:
         '''Start pyxel game loop'''
         game.pyxeltools.run(self)
 
+    def reset(self):
+        '''Reset game states'''
+        self._dungeon_.reset()
+
     def add_state(self, game_state, identifier):
         '''Add new state to the game'''
         self._states_[identifier] = game_state
         if self._current_state_ is None:
             self.enter_state(identifier)
+            self._initial_state_ = identifier
 
     def enter_state(self, new_state):
         '''Change game state'''

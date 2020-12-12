@@ -5,8 +5,8 @@
 ''' Heroes factory '''
 
 from game.common import WARRIOR, VALKYRIE, WIZARD, ELF,\
-    HEROES_SPAWN, SPAWN_IDS, KEYS, HERO_CLASS, SCORE, LIFE,\
-    INITIAL_HERO_LIFE
+    HEROES_SPAWN, SPAWN_IDS, KEYS, SCORE, LIFE,\
+    INITIAL_HERO_LIFE, OBJECT_CLASS, OBJECT_TYPE
 from game.game_object import Actor
 from game.bodies import Box
 from game.sprite import loop_animation, animation
@@ -27,7 +27,6 @@ class Hero(Actor):
         super(Hero, self).__init__(animations, identifier=identifier)
         self._spawn_ = spawn_zone
         self.body = Box()
-        self.tags.append('hero')
         self.set_attribute(KEYS, 0)
 
     @property
@@ -43,9 +42,10 @@ class Hero(Actor):
         self._spawn_ = new_spawn
 
 
-def new(hero_type, actor_identifier=None, attributes=None):
+def new(actor_identifier=None, attributes=None):
     '''Hero factory'''
     attributes = attributes or {}
+    hero_type = attributes[OBJECT_TYPE]
     if hero_type == WARRIOR:
         new_actor = Hero({
             'stand_by': loop_animation(HEROES, 4, [WARRIOR_DOWN[0]]),
@@ -105,7 +105,6 @@ def new(hero_type, actor_identifier=None, attributes=None):
     else:
         raise ValueError('Invalid hero_type: {}'.format(hero_type))
 
-    new_actor.attribute[HERO_CLASS] = hero_type
     new_actor.attribute[SCORE] = 0
     new_actor.attribute[LIFE] = INITIAL_HERO_LIFE
     new_actor.attribute.update(attributes)

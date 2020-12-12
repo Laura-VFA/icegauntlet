@@ -90,7 +90,7 @@ class Box(Body):
         # Doors are not boolean blocks
         doors = collides.difference({True, False})
         for door in doors:
-            self.game_object.room.send_event(
-                ('collision', self.game_object.identifier, door)
+            self.game_object.room.fire_event(
+                ('collision', self.game_object.identifier, door), only_local=True
             )
         return (not True in collides) and (not doors)

@@ -20,9 +20,9 @@ import game.heroes
 import game.steers
 import game.objects
 from game.common import DOORS, KEYS, AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE,\
-    X, Y, TAGS, LIFE, SCORE,\
+    IDENTIFIER, X, Y, LIFE, SCORE, OBJECT_CLASS, OBJECT_TYPE, STATE,\
     POINTS_PER_DOOR, POINTS_PER_KEY, POINTS_PER_LEVEL
-from game.pyxeltools import TILE_SIZE, load_json_map
+from game.pyxeltools import TILE_SIZE
 
 
 def _closest_(target, objects=None):
@@ -51,20 +51,16 @@ def _random_arround_(center):
         return ((x + x_offset) * TILE_SIZE, (y + y_offset) * TILE_SIZE)
 
 
-def __discard_event__(event):
-    logging.debug(f'Lost event: {event}')
-
-
 class TrackedGameObject:
     '''Every game object in the Room() but only data info'''
-    def __init__(self, identifier, object_class, object_type, attributes=None):
-        attributes = attributes or {}
-        self.identifier = identifier
-        self.object_class = object_class
-        self.object_type = object_type
-        self.state = "initial"
-        self.attribute = {X: 0, Y: 0}
-        self.attribute.update(attributes)
+    def __init__(self, identifier, attributes=None):
+        self.attribute = {
+            IDENTIFIER: identifier,
+            X: 0, Y: 0,
+            STATE: 'initial'
+        }
+        if attributes:
+            self.attribute.update(attributes)
 
     @property
     def x(self):
@@ -77,9 +73,9 @@ class TrackedGameObject:
         return self.attribute[Y]
 
     @property
-    def tags(self):
-        '''Shortcut to TAGS attribute'''
-        return self.attribute.get(TAGS, [])
+    def identifier(self):
+        '''Shortcut to identifier'''
+        return self.attribute[IDENTIFIER]
 
     @property
     def position(self):
@@ -91,17 +87,35 @@ class TrackedGameObject:
         '''Shortcut to set object position'''
         self.attribute[X] = new_position[0]
         self.attribute[Y] = new_position[1]
+    
+    @property
+    def object_class(self):
+        '''Shortcut to object class'''
+        return self.attribute[OBJECT_CLASS]
+
+    @property
+    def object_type(self):
+        '''Shortcut to object type'''
+        return self.attribute[OBJECT_TYPE]
+
+    @property
+    def state(self):
+        '''Shortcut to state'''
+        return self.attribute[STATE]
+
+    @state.setter
+    def state(self, new_state):
+        '''Shortcut to state'''
+        self.attribute[STATE] = new_state
 
 
 class RoomOrchestration:
     '''A running game instance'''
-    def __init__(self, room):
+    def __init__(self, area):
         self._identifier_ = None
-        self._room_ = room
+        self._area_ = area
         self._game_objects_ = {}
-        self._map_objects_ = []
-        self._event_target_ = __discard_event__
-        self.parent_level = None
+        self._level_ = None
         self._last_time_ = int(time.time())
 
     @property
@@ -111,70 +125,62 @@ class RoomOrchestration:
 
     @identifier.setter
     def identifier(self, new_identifier):
-        '''Change game identifier'''
+        '''Change instance identifier'''
         self._identifier_ = new_identifier
 
     @property
-    def event_target(self):
-        '''Get event destination callback'''
-        return self._event_target_
-
-    @event_target.setter
-    def event_target(self, new_event_target):
-        '''Set event destination callback'''
-        self._event_target_ = new_event_target
+    def level(self):
+        '''Get associated level'''
+        return self._level_
+    
+    @level.setter
+    def level(self, new_level):
+        '''Set associated level'''
+        self._level_ = new_level
+        self._area_.event_handler = self.event_handler
 
     def start(self):
         '''Start new map'''
         self._game_objects_ = {}
-        self._map_objects_ = []
         self._load_map_()
-        for object_type, position in self._map_objects_:
-            self._spawn_object_(object_type, *position)
-        self._spawn_player_()
+        for identifier, object_type, position in self._area_.getObjects():
+            self._spawn_object_(identifier, object_type, *position)
+        
+        for identifier, attributes in self._area_.getActors():
+            self._spawn_actor_(identifier, attributes)
 
-    @property
-    def tracked_objects(self):
-        '''Tracked objects'''
-        return self._game_objects_
+        self._spawn_actor_(self.level.player.identifier, self.level.player.attribute)
 
     def _load_map_(self):
-        map_name, map_data = load_json_map(self._room_)
-        # Get objects and replace by empty tile
-        y = 0
-        for row in map_data:
-            x = 0
-            for src_tile in row:
-                if src_tile in AVAILABLE_OBJECT_IDS:
-                    self._map_objects_.append((src_tile, (x * TILE_SIZE, y * TILE_SIZE)))
-                    src_tile = EMPTY_TILE
-                if src_tile == NULL_TILE:
-                    src_tile = EMPTY_TILE
-                map_data[y][x] = src_tile
-                x += 1
-            y += 1
-        # Convert tiles to cells
-        self.send_event(('load_room', map_name, map_data))
+        map_name, map_autor, map_data = self._area_.getMap()
+        self.fire_event(('load_room', map_name, map_data, map_autor), only_local=True)
 
-    def _spawn_object_(self, object_type, x, y):
-        identifier = str(uuid.uuid4())
-        self.send_event(('spawn_object', object_type, identifier, x, y))
-        if object_type in DOORS:
-            object_class = 'door'
-        else:
-            object_class = 'item'
-        self._game_objects_[identifier] = TrackedGameObject(identifier, object_class, object_type)
-        self._game_objects_[identifier].position = (x, y)
+    def _spawn_actor_(self, identifier, attributes):
+        self.fire_event(('spawn_actor', identifier, attributes))
+
+    def _spawn_object_(self, identifier, object_type, x, y):
+        self.fire_event(('spawn_object', identifier, object_type, x, y))
 
     def _spawn_decoration_(self, decoration_type, x, y):
-        self.send_event(('spawn_decoration', decoration_type, x, y))
+        self.fire_event(('spawn_decoration', decoration_type, x, y))
 
     def _kill_object_(self, identifier):
-        self.send_event(('kill_object', identifier))
-        del self._game_objects_[identifier]
+        self.fire_event(('kill_object', identifier))
 
-    def _open_door_(self, identifier):
-        self.send_event(('open_door', identifier))
+    def _open_door_(self, player, door):
+        self.fire_event(('open_door', player, door))
+
+    def _set_attribute_(self, identifier, attribute, value):
+        self.fire_event(('set_attribute', identifier, attribute, value))
+
+    def _increase_attribute_(self, identifier, attribute, count):
+        self.fire_event(('increase_attribute', identifier, attribute, count))
+
+    def _warp_to_(self, identifier, position):
+        self.fire_event(('warp_to', identifier, position))
+
+    def _object_state_(self, identifier, state):
+        self.fire_event(('set_state', identifier, state))
 
     def _get_objects_(self, type_id, exclude=None):
         found = []
@@ -188,48 +194,58 @@ class RoomOrchestration:
                 found.append(game_object)
         return found
 
-    def _set_attribute_(self, identifier, attribute, value):
-        self._game_objects_[identifier].attribute[attribute] = value
-        self.send_event(('set_attribute', identifier, attribute, value))
-
-    def _increase_attribute_(self, identifier, attribute, count):
-        current_value = self._game_objects_[identifier].attribute.get(attribute, 0)
-        self._game_objects_[identifier].attribute[attribute] = current_value + count
-        self.send_event(('increase_attribute', identifier, attribute, count))
-
-    def _spawn_player_(self):
-        self.send_event(('spawn_player',))
-        attributes = {
-            TAGS: ['hero']
-        }.update(self.parent_level.player.attribute)
-        self._game_objects_[self.identifier] = TrackedGameObject(
-            self.identifier, 'hero', 'player', attributes
-        )
-
-    def _warp_to_(self, identifier, position):
-        self.send_event(('warp_to', identifier, position))
-        self._game_objects_[identifier].position = position
-
-    def _object_state_(self, identifier, state):
-        self.send_event(('set_state', identifier, state))
-        self._game_objects_[identifier].state = state
-
     def event_handler(self, event):
         '''Handle event from the Room()'''
-        print('Processing: {}'.format(event))
         event_type = event[0]
         event_parameters = event[1:]
-
         if event_type == 'collision':
             self._process_collision_(*event_parameters)
+        elif event_type == 'spawn_actor':
+            self.level.event_handler(event)
+            identifier, attributes = event_parameters
+            self._game_objects_[identifier] = TrackedGameObject(identifier, attributes)
         elif event_type == 'kill_object':
-            if event_parameters[0] in self._game_objects_:
+            self.level.event_handler(event)
+            try:
                 del self._game_objects_[event_parameters[0]]
+            except KeyError:
+                pass
+        elif event_type == 'spawn_object':
+            self.level.event_handler(event)
+            identifier, object_type, x, y = event_parameters
+            self._game_objects_[identifier] = TrackedGameObject(identifier, {
+                X: x * TILE_SIZE,
+                Y: y * TILE_SIZE,
+                OBJECT_CLASS: 'door' if object_type in DOORS else 'item',
+                OBJECT_TYPE: object_type
+            })
+        elif event_type == 'set_attribute':
+            self.level.event_handler(event)
+            identifier, attribute, value = event_parameters
+            self._game_objects_[identifier].attribute[attribute] = value
+        elif event_type == 'increase_attribute':
+            self.level.event_handler(event)
+            identifier, attribute, count = event_parameters
+            current_value = self._game_objects_[identifier].attribute.get(attribute, 0)
+            self._game_objects_[identifier].attribute[attribute] = current_value + count
+        elif event_type == 'warp_to':
+            self.level.event_handler(event)
+            identifier, position = event_parameters
+            self._game_objects_[identifier].position = position
+        elif event_type == 'set_state':
+            self.level.event_handler(event)
+            identifier, state = event_parameters
+            self._game_objects_[identifier].state = state
 
-    def send_event(self, event):
-        '''Send event to the Room()'''
-        print('Sending: {}'.format(event))
-        self._event_target_(event)
+        else:
+            self.level.event_handler(event)
+
+    def fire_event(self, event, only_local=False):
+        '''Fire event to the Room()'''
+        if only_local:
+            self.event_handler(event)
+        else:
+            self._area_.fire_event(event, only_local=False)
 
     def _process_collision_(self, object1, object2):
         if (object1 not in self._game_objects_) or (object2 not in self._game_objects_):
@@ -273,14 +289,11 @@ class RoomOrchestration:
             elif object2.object_class == 'door':
                 # Player try to open a door
                 if object1.attribute.get(KEYS, 0) > 0:
-                    self._increase_attribute_(object1.identifier, KEYS, -1)
                     self._increase_attribute_(object1.identifier, SCORE, POINTS_PER_DOOR)
-                    self._open_door_(object2.identifier)
+                    self._open_door_(object1.identifier, object2.identifier)
 
     def update(self):
         '''Game loop iteration'''
         if int(time.time()) != self._last_time_:
-            for game_object in self._game_objects_.values():
-                if game_object.object_class == 'hero':
-                    self._increase_attribute_(game_object.identifier, LIFE, -1)
+            self._increase_attribute_(self.identifier, LIFE, -1)
             self._last_time_ = int(time.time())

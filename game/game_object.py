@@ -10,7 +10,7 @@ import uuid
 from game.bodies import Body, Box
 from game.steers import Static
 from game.sprite import Drawable
-from game.common import X, Y, DIR_X, DIR_Y, SPEED, TAGS
+from game.common import IDENTIFIER, X, Y, DIR_X, DIR_Y, SPEED
 
 _STANDBY_ = 'stand_by'
 
@@ -18,24 +18,18 @@ _STANDBY_ = 'stand_by'
 class GameObject:
     '''Base of game objects'''
     def __init__(self, initial_position=(0, 0), identifier=None):
-        self._id_ = identifier or str(uuid.uuid4())
         self._body_ = None
         self._room_ = None
         self.attribute = {
+            IDENTIFIER: identifier or str(uuid.uuid4()),
             X: initial_position[0],
-            Y: initial_position[1],
-            TAGS: []
+            Y: initial_position[1]
         }
 
     @property
     def identifier(self):
         '''Game object ID'''
-        return self._id_
-
-    @property
-    def tags(self):
-        '''Object tags'''
-        return self.attribute[TAGS]
+        return self.attribute[IDENTIFIER]
 
     @property
     def room(self):

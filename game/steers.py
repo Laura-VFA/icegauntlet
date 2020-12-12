@@ -6,6 +6,8 @@
     Steers implementation
 '''
 
+import random
+
 import pyxel
 
 from game.common import DIR_X, DIR_Y
@@ -73,7 +75,61 @@ class Player1(Steer):
                 (self.last_dir_y != self.actor.attribute[DIR_Y])):
             if not self.actor.attribute[DIR_X] == self.actor.attribute[DIR_Y] == 0:
                 self.actor.state = _ANIM_[self.actor.attribute[DIR_X]][self.actor.attribute[DIR_Y]]
-            self.actor.room.send_event(
+            self.actor.room.fire_event(
+                ('set_direction', self.actor.identifier,
+                 self.actor.attribute[DIR_X], self.actor.attribute[DIR_Y])
+            )
+        (self.last_dir_x,
+         self.last_dir_y) = (self.actor.attribute[DIR_X], self.actor.attribute[DIR_Y])
+
+
+class Random(Steer):
+    '''This steer moves randomly, using for debug'''
+    last_dir_x = 0
+    last_dir_y = 0
+    remaining_run = 0
+    current_direction = 0
+    def update(self):
+        if self.actor.state == 'exit':
+            self.actor.attribute[DIR_X] = self.actor.attribute[DIR_Y] = 0
+            return
+
+        if self.remaining_run <= 0:
+            self.current_direction = random.randint(0, 8)
+            self.remaining_run = random.randint(20, 50)
+        else:
+            self.remaining_run -= 1
+
+        if self.current_direction == 0:
+            self.actor.attribute[DIR_X] = -1
+            self.actor.attribute[DIR_Y] = -1
+        elif self.current_direction == 1:
+            self.actor.attribute[DIR_X] = -1
+            self.actor.attribute[DIR_Y] = 0
+        elif self.current_direction == 2:
+            self.actor.attribute[DIR_X] = -1
+            self.actor.attribute[DIR_Y] = 1
+        elif self.current_direction == 3:
+            self.actor.attribute[DIR_X] = 0
+            self.actor.attribute[DIR_Y] = -1
+        elif self.current_direction == 4:
+            self.actor.attribute[DIR_X] = 0
+            self.actor.attribute[DIR_Y] = 1
+        elif self.current_direction == 5:
+            self.actor.attribute[DIR_X] = 1
+            self.actor.attribute[DIR_Y] = -1
+        elif self.current_direction == 6:
+            self.actor.attribute[DIR_X] = 1
+            self.actor.attribute[DIR_Y] = 0
+        elif self.current_direction == 7:
+            self.actor.attribute[DIR_X] = 1
+            self.actor.attribute[DIR_Y] = 1
+
+        if ((self.last_dir_x != self.actor.attribute[DIR_X]) or
+                (self.last_dir_y != self.actor.attribute[DIR_Y])):
+            if not self.actor.attribute[DIR_X] == self.actor.attribute[DIR_Y] == 0:
+                self.actor.state = _ANIM_[self.actor.attribute[DIR_X]][self.actor.attribute[DIR_Y]]
+            self.actor.room.fire_event(
                 ('set_direction', self.actor.identifier,
                  self.actor.attribute[DIR_X], self.actor.attribute[DIR_Y])
             )
@@ -82,7 +138,8 @@ class Player1(Steer):
 
 
 _STEERS_ = {
-    'Player1': Player1
+    'Player1': Player1,
+    'Random': Random
 }
 
 
