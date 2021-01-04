@@ -15,6 +15,8 @@ import game.common
 import game.screens
 import game.pyxeltools
 import game.orchestration
+from game.common import LIFE, LEVEL_COUNT, AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE, HEROES,\
+    OBJECT_CLASS, OBJECT_TYPE, IDENTIFIER
 
 Ice.loadSlice('icegauntlet.ice')
 # pylint: disable=E0401
@@ -31,10 +33,11 @@ DEFAULT_HERO = game.common.HEROES[0]
 
 class RemoteDungeonMap(Ice.Application):
     '''Store a list of rooms'''
-    def __init__(self, dungeon_proxy, hero):
+    def __init__(self, dungeon_proxy, hero, dungeon_area_sync_proxy):
         self.dungeon_proxy=dungeon_proxy
         self.hero = hero
         self.dungeon_servant = None
+        self.dungeon_area_sync_proxy = dungeon_area_sync_proxy
 
     def run (self, args):
         dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
@@ -58,15 +61,68 @@ class RemoteDungeonMap(Ice.Application):
             pass
 
     @property
-    def next_room(self):
+    def next_area(self):
         '''To obtain a new room'''
-        return self.dungeon_servant.getRoom()
+        self._current_area_ = RemoteArea(self.dungeon_servant.getEntrance(), self.dungeon_area_sync_proxy)
+        _current_area_.main(sys.argv)
+        return self._current_area_
 
 
     @property
     def finished(self):
         '''To know if the game has finished'''
         return False
+
+    def abandon_area(self):
+        self._current_area_.abandon()
+
+class RemoteArea(Ice.Application):
+    def __init__(self, level, dungeon_area_sync_proxy):
+        self.dungeon_area_sync_proxy = dungeon_area_sync_proxy
+        self.event_handler = self.__send_event__
+        self.roomName, self.author, roomData = load_json_map(level)
+        self.objects = []
+        self.roomData = []
+        y = 0
+        for row in roomData:
+            x = 0
+            filteredRow = []
+            for tile in row:
+                if (tile in AVAILABLE_OBJECT_IDS):
+                    filteredRow.append(EMPTY_TILE)
+                    self.objects.append((str(uuid.uuid4()), tile, (x, y)))
+                elif (tile == NULL_TILE):
+                    filteredRow.append(EMPTY_TILE)
+                else:
+                    filteredRow.append(tile)
+                x += 1
+            y += 1
+            self.roomData.append(filteredRow)
+
+    def run (self, args):
+        dungeon_area_sync_proxy = self.communicator().stringToProxy(self.dungeon_area_sync_proxy)
+        self.dungeon_area_sync_servant = IceGauntlet.DungeonAreaPrx.checkedCast(dungeon_area_sync_proxy)
+        if not self.dungeon_area_sync_servant:
+            raise RuntimeError('Invalid proxy')
+
+    def getMap(self):
+        return self.roomName, self.author, self.roomData
+
+    def getObjects(self):
+        return self.objects
+
+    def getActors(self):
+        return []
+    
+    def fire_event(self, event, only_local=False):
+        if not only_local:
+            self.event_handler(event)
+
+    def abandon(self):
+        pass
+
+    def __send_event__(self, event):
+        self.dungeon_area_sync_servant.fireEvent(event, ) #TODO get the identifier
 
 @atexit.register
 # pylint: disable=W0613
@@ -79,6 +135,7 @@ def parse_commandline():
     '''Parse and check commandline'''
     parser = argparse.ArgumentParser('IceDungeon Local Game')
     parser.add_argument('PROXY', type=str, help = 'proxy of the Map server')
+    parser.add_argument('DUNGEON_AREA_SYNC_PROXY', type=str, help = 'proxy of the Game server')
     parser.add_argument(
         '-p', '--player', default=DEFAULT_HERO, choices=game.common.HEROES,
         dest='hero', help='Hero to play with'
@@ -94,7 +151,7 @@ def main():
     if not user_options:
         return BAD_COMMAND_LINE
 
-    dungeon = RemoteDungeonMap(user_options.PROXY, user_options.hero)
+    dungeon = RemoteDungeonMap(user_options.PROXY, user_options.hero, user_options.DUNGEON_AREA_SYNC_PROXY)
     dungeon.main(sys.argv)
 
     return EXIT_OK
