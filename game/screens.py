@@ -72,6 +72,9 @@ class GameOverScreen(game.GameState):
     h_center = 0
     timeout = 0
 
+    def suspend(self):
+        self.parent.reset()
+    
     def wake_up(self):
         self.timeout = 300
         self.tile_resolution = game.pyxeltools.load_png_to_image_bank(
@@ -96,6 +99,9 @@ class GoodEndScreen(game.GameState):
     h_center = 0
     timeout = 0
 
+    def suspend(self):
+        self.parent.reset()
+
     def wake_up(self):
         self.timeout = 300
         self.tile_resolution = game.pyxeltools.load_png_to_image_bank(
@@ -118,9 +124,9 @@ class GameScreen(game.GameState):
     '''Game screen'''
     def __init__(self, parent):
         super(GameScreen, self).__init__(parent)
-        room = self.parent.dungeon.next_room
+        area = self.parent.dungeon.next_area
         self.room = game.level.Level(self.parent)
-        self.room.orchestrator = game.orchestration.RoomOrchestration(room)
+        self.room.orchestrator = game.orchestration.RoomOrchestration(area)
 
         self.wake_up = self.room.wake_up
         self.suspend = self.room.suspend

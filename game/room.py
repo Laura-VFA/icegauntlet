@@ -10,7 +10,7 @@ import logging
 
 from game.layer import TileMapLayer
 from game.camera import Camera
-from game.common import TILE_ID, DEFAULT_SPAWN
+from game.common import TILE_ID, DEFAULT_SPAWN, KEYS
 from game.objects import Spawn, Door
 from game.pyxeltools import get_color_mask
 from game.artwork import BLOCK_CELLS
@@ -38,19 +38,14 @@ _DOOR_DIRECTION_ = {
 
 class Room:
     '''Container for all in-game elements'''
-    def __init__(self, floor_data, parent_game):
+    def __init__(self, floor_data, level):
         self._scenario_ = TileMapLayer(floor_data, mask=get_color_mask())
         self._camera_ = Camera(self._scenario_)
-        self._game_ = parent_game
+        self._level_ = level
         self._game_objects_ = {}
         self._decorations_ = {}
         self.block = self._compute_walls_collisions_()
         self._spawns_ = self._get_spawns_()
-
-    @property
-    def initial_objects(self):
-        '''List of all objects defined in the map initially'''
-        return self._scenario_.objects
 
     @property
     def game_objects(self):
@@ -87,17 +82,16 @@ class Room:
         '''Map layers'''
         return self._scenario_
 
-    def spawn(self, game_object):
-        '''Spawn new object at a spawn zone'''
-        spawn_zone = game_object.spawn if game_object.spawn in self._spawns_ else DEFAULT_SPAWN
-        self.spawn_at(game_object, self._spawns_[spawn_zone])
-
-    def spawn_at(self, game_object, position):
-        '''Spawn new object at a given position'''
+    def spawn(self, game_object, position=None):
+        '''Spawn new object at a spawn zone or given position'''
+        if not position:
+            spawn_zone = game_object.spawn if game_object.spawn in self._spawns_ else DEFAULT_SPAWN
+            position = self._spawns_[spawn_zone]        
         self._game_objects_[game_object.identifier] = game_object
         self._game_objects_[game_object.identifier].position = position
         self._game_objects_[game_object.identifier].room = self
-        self._spawns_.update(self._get_spawns_())
+        if isinstance(game_object, Spawn):
+            self._spawns_.update(self._get_spawns_())
 
     def spawn_decoration(self, decoration_id, position):
         '''Spawn decoration'''
@@ -109,8 +103,8 @@ class Room:
         '''Kill an object'''
         identifier = game_object if isinstance(game_object, str) else game_object.identifier
 
-        if identifier == self._game_.identifier:
-            self._game_.player.attribute.update(self._game_objects_[identifier].attribute)
+        if identifier == self._level_.identifier:
+            self._level_.player.attribute.update(self._game_objects_[identifier].attribute)
 
         if identifier in self._game_objects_:
             self._game_objects_[identifier].room = None
@@ -119,10 +113,10 @@ class Room:
             self._decorations_[identifier].room = None
             del self._decorations_[identifier]
 
-        if identifier == self._game_.identifier:
-            self._game_.end_current_room()
+        if identifier == self._level_.identifier:
+            self._level_.end_current_room()
 
-    def open_door(self, door_identifier):
+    def open_door(self, player_identifier, door_identifier):
         '''Open a existing door'''
         door_position = self._search_door_(door_identifier)
         if not door_position:
@@ -130,7 +124,8 @@ class Room:
         doors = self._adjacent_doors_(door_position)
         for door in doors:
             self.kill(door)
-            self.send_event(('kill_object', door))
+            self.fire_event(('kill_object', door), only_local=True)
+        self.fire_event(('increase_attribute', player_identifier, KEYS, -1))
 
     def _search_door_(self, door_identifier):
         if door_identifier not in self._game_objects_:
@@ -148,10 +143,10 @@ class Room:
     def _adjacent_doors_(self, location, visited=None):
         if not visited:
             visited = []
-        x, y = location
         if location in visited:
             return []
-        visited.append((x, y))
+        visited.append(location)
+        x, y = location
         if (y not in range(len(self.block))) or (x not in range(len(self.block[0]))):
             return []
         identifier = self.block[y][x]
@@ -196,8 +191,8 @@ class Room:
             if (other_game_object is game_object) or (not other_game_object.body):
                 continue
             if game_object.body.collides_with(other_game_object):
-                self.send_event(('collision', game_object.identifier, other_game_object.identifier))
+                self.fire_event(('collision', game_object.identifier, other_game_object.identifier), only_local=True)
 
-    def send_event(self, event):
+    def fire_event(self, event, only_local=False):
         '''Send event to orchestrator'''
-        self._game_.send_event(event)
+        self._level_.fire_event(event, only_local=only_local)

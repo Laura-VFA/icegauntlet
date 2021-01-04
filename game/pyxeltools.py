@@ -133,9 +133,10 @@ def load_json_map(jsonfile):
 
     map_data = src_map.get('data', None)
     map_name = src_map.get('room', os.path.basename(jsonfile))
+    map_author = src_map.get('author', 'anonymous')
     if not map_data:
         raise ValueError('JSON file does not have a data field')
-    return map_name, map_data
+    return map_name, map_author, map_data
 
 
 def put_tile(layer_id, tile_id, position):

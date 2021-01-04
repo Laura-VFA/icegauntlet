@@ -24,10 +24,6 @@ from game.common import LIFE, LEVELS, LEVEL_COUNT,\
 _KEY_ = game.sprite.Raster(game.pyxeltools.MAP_ENTITIES, *game.pyxeltools.tile(game.common.OSD_KEY))
 
 
-def _discard_event_(event):
-    print('Event ignored: {}'.format(event))
-
-
 class NoLevel:
     '''Dummy object used when no level is loaded'''
     game_objects = {}
@@ -48,9 +44,9 @@ class Level(game.GameState):
     '''Level controller'''
     def __init__(self, parent):
         super(Level, self).__init__(parent)
-        self._event_handler_ = _discard_event_
         self.room = NoLevel()
         self._orchestrator_ = None
+        self.fire_event = self.__discard_event__
 
     @property
     def player(self):
@@ -76,10 +72,9 @@ class Level(game.GameState):
     def orchestrator(self, new_orchestrator):
         '''Set the level orchestrator'''
         self._orchestrator_ = new_orchestrator
-        self._event_handler_ = self._orchestrator_.event_handler
-        self._orchestrator_.event_target = self.event_consumer
+        self.fire_event = self.__fire_event__
         self._orchestrator_.identifier = self.identifier
-        self._orchestrator_.parent_level = self
+        self._orchestrator_.level = self
 
     def wake_up(self):
         game.pyxeltools.load_png_to_image_bank(
@@ -120,12 +115,13 @@ class Level(game.GameState):
             10
         )
 
-    def make_room(self, name, data):
+    def make_room(self, name, data, author):
         '''Room factory'''
         self.room = game.room.Room(data, self)
 
     def end_current_room(self):
         '''End level'''
+        self.dungeon.abandon_area()
         if self.player.attribute[LIFE] <= 0:
             self.go_to_state(GAME_OVER_SCREEN)
         else:
@@ -135,21 +131,24 @@ class Level(game.GameState):
                 self.player.attribute[LEVEL_COUNT] += 1
                 self.go_to_state(STATUS_SCREEN)
 
-    def spawn_player(self):
+    def spawn_actor(self, identifier, attributes):
         '''Create a new player for this level'''
-        hero = game.heroes.new(
-            self.player.hero_class,
-            actor_identifier=self.identifier, attributes=self.player.attribute
-        )
-        hero.steer = game.steers.new(self.player.steer_id)
-        self.room.spawn(hero)
-        self.room.camera.set_target(hero)
-        self.room.camera.warp_to(hero.position)
-        self.room.spawn_decoration('explosion', hero.position)
+        actor = game.heroes.new(identifier, attributes)
+        self.room.spawn(actor)
+        if identifier == self.identifier:
+            actor.steer = game.steers.new(self.player.steer_id)
+            self.room.camera.set_target(actor)
+            self.room.camera.warp_to(actor.position)
+        else:
+            actor.steer = game.steers.new('Random')
+        self.room.spawn_decoration('explosion', actor.position)
 
-    def spawn_object(self, object_type, identifier, x, y):
+    def spawn_object(self, identifier, object_type, x, y):
         '''Create a new object'''
-        self.room.spawn_at(game.objects.new(object_type, identifier), (x, y))
+        self.room.spawn(
+            game.objects.new(object_type, identifier),
+            (x * game.pyxeltools.TILE_SIZE, y * game.pyxeltools.TILE_SIZE)
+        )
 
     def spawn_decoration(self, decoration_type, x, y):
         '''Create a new decoration'''
@@ -166,9 +165,9 @@ class Level(game.GameState):
         '''Remove object from level'''
         self.room.kill(identifier)
 
-    def open_door(self, door_identifier):
+    def open_door(self, player_identifier, door_identifier):
         '''Remove door (and adyacents)'''
-        self.room.open_door(door_identifier)
+        self.room.open_door(player_identifier, door_identifier)
 
     def set_game_object_attribute(self, identifier, attribute, value):
         '''Change attribute of a game object'''
@@ -200,18 +199,21 @@ class Level(game.GameState):
             return
         game_object.state = state
 
-    def send_event(self, event):
+    def __discard_event__(self, event, only_local=False):
+        pass
+    
+    def __fire_event__(self, event, only_local=False):
         '''Send event to orchestrator'''
-        self._event_handler_(event)
+        self._orchestrator_.fire_event(event, only_local=only_local)
 
-    def event_consumer(self, event):
+    def event_handler(self, event):
         '''Consume event from orchestrator'''
         event_type = event[0]
         event_parameters = event[1:]
         if event_type == 'load_room':
             self.make_room(*event_parameters)
-        elif event_type == 'spawn_player':
-            self.spawn_player(*event_parameters)
+        elif event_type == 'spawn_actor':
+            self.spawn_actor(*event_parameters)
         elif event_type == 'spawn_object':
             self.spawn_object(*event_parameters)
         elif event_type == 'spawn_decoration':

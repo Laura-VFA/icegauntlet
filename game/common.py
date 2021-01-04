@@ -16,14 +16,16 @@ Y = 'y'
 DIR_X = 'dir_x'
 DIR_Y = 'dir_y'
 SPEED = 'speed'
-HERO_CLASS = 'class'
-TAGS = 'tags'
+OBJECT_CLASS = 'object_class'
+OBJECT_TYPE = 'object_type'
+STATE = 'state'
 TILE_ID = 'tile_id'
 KEYS = 'keys'
 SCORE = 'score'
 LIFE = 'life'
 LEVELS = 'levels'
 LEVEL_COUNT = 'level_count'
+IDENTIFIER = 'identifier'
 
 # Map entities #
 
