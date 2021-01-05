@@ -64,7 +64,10 @@ class RemoteDungeonMap(Ice.Application):
     @property
     def next_area(self):
         '''To obtain a new room'''
-        self._current_area_ = RemoteArea(self.dungeon_servant.getEntrance(), self.game_id)
+        if not self.self._current_area_:
+            self._current_area_ = RemoteArea(self.dungeon_servant.getEntrance(), self.game_id)
+        else:
+            self._current_area_ = self._current_area_.dungeon_area.getNextArea()
         _current_area_.main(sys.argv)
         return self._current_area_
 
