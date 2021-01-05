@@ -10,6 +10,7 @@ import sys
 import atexit
 import argparse
 import Ice
+import IceStorm
 import game
 import game.common
 import game.screens
@@ -33,11 +34,11 @@ DEFAULT_HERO = game.common.HEROES[0]
 
 class RemoteDungeonMap(Ice.Application):
     '''Store a list of rooms'''
-    def __init__(self, dungeon_proxy, hero, dungeon_area_sync_proxy):
+    def __init__(self, dungeon_proxy, hero):
         self.dungeon_proxy=dungeon_proxy
         self.hero = hero
         self.dungeon_servant = None
-        self.dungeon_area_sync_proxy = dungeon_area_sync_proxy
+        self.game_id = str(uuid.uuid4())
 
     def run (self, args):
         dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
@@ -48,7 +49,7 @@ class RemoteDungeonMap(Ice.Application):
         self.shutdownOnInterrupt()
 
         game.pyxeltools.initialize()
-        gauntlet = game.Game(self.hero, self)
+        gauntlet = game.Game(self.hero, self, self.game_id)
         gauntlet.add_state(game.screens.TileScreen, game.common.INITIAL_SCREEN)
         gauntlet.add_state(game.screens.StatsScreen, game.common.STATUS_SCREEN)
         gauntlet.add_state(game.screens.GameScreen, game.common.GAME_SCREEN)
@@ -63,7 +64,7 @@ class RemoteDungeonMap(Ice.Application):
     @property
     def next_area(self):
         '''To obtain a new room'''
-        self._current_area_ = RemoteArea(self.dungeon_servant.getEntrance(), self.dungeon_area_sync_proxy)
+        self._current_area_ = RemoteArea(self.dungeon_servant.getEntrance(), self.game_id)
         _current_area_.main(sys.argv)
         return self._current_area_
 
@@ -77,8 +78,9 @@ class RemoteDungeonMap(Ice.Application):
         self._current_area_.abandon()
 
 class RemoteArea(Ice.Application):
-    def __init__(self, level, dungeon_area_sync_proxy):
-        self.dungeon_area_sync_proxy = dungeon_area_sync_proxy
+    def __init__(self, dungeon_area, game_id):
+        self.game_id=game_id
+        self.dungeon_area = dungeon_area
         self.event_handler = self.__send_event__
         self.roomName, self.author, roomData = load_json_map(level)
         self.objects = []
@@ -99,11 +101,26 @@ class RemoteArea(Ice.Application):
             y += 1
             self.roomData.append(filteredRow)
 
+    def get_topic_manager(self):
+        key = 'IceStorm.TopicManager.Proxy'
+        proxy = self.communicator().propertyToProxy(key)
+        if proxy is None:
+            print("property '{}' not set".format(key))
+            return None
+
     def run (self, args):
-        dungeon_area_sync_proxy = self.communicator().stringToProxy(self.dungeon_area_sync_proxy)
-        self.dungeon_area_sync_servant = IceGauntlet.DungeonAreaPrx.checkedCast(dungeon_area_sync_proxy)
-        if not self.dungeon_area_sync_servant:
-            raise RuntimeError('Invalid proxy')
+        topic_mgr = self.get_topic_manager()
+        if not topic_mgr:
+            print('Invalid proxy')
+            return 2
+        self.topic_name=self.dungeon_area.getEventChannel()
+        try:
+            topic = topic_mgr.retrieve(topic_name)
+        except IceStorm.NoSuchTopic:
+            print("No such topic found, crating")
+            topic=topic_mgr.create(topic_name)
+        publisher=topic.getPublisher()
+        self.dungeon_area_sync=IceGauntlet.DungeonAreaSyncPrx.uncheckedCast(publisher)
 
     def getMap(self):
         return self.roomName, self.author, self.roomData
@@ -122,7 +139,7 @@ class RemoteArea(Ice.Application):
         pass
 
     def __send_event__(self, event):
-        self.dungeon_area_sync_servant.fireEvent(event, ) #TODO get the identifier
+        self.dungeon_area_sync.fireEvent(event, self.game_id)
 
 @atexit.register
 # pylint: disable=W0613
@@ -135,7 +152,6 @@ def parse_commandline():
     '''Parse and check commandline'''
     parser = argparse.ArgumentParser('IceDungeon Local Game')
     parser.add_argument('PROXY', type=str, help = 'proxy of the Map server')
-    parser.add_argument('DUNGEON_AREA_SYNC_PROXY', type=str, help = 'proxy of the Game server')
     parser.add_argument(
         '-p', '--player', default=DEFAULT_HERO, choices=game.common.HEROES,
         dest='hero', help='Hero to play with'
@@ -151,7 +167,7 @@ def main():
     if not user_options:
         return BAD_COMMAND_LINE
 
-    dungeon = RemoteDungeonMap(user_options.PROXY, user_options.hero, user_options.DUNGEON_AREA_SYNC_PROXY)
+    dungeon = RemoteDungeonMap(user_options.PROXY, user_options.hero)
     dungeon.main(sys.argv)
 
     return EXIT_OK
