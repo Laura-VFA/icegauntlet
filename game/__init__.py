@@ -126,6 +126,7 @@ class LocalArea:
         return []
     
     def fire_event(self, event, only_local=False):
+        print(event)
         if not only_local:
             self.event_handler(event)
 

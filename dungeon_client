@@ -7,6 +7,7 @@
 '''
 
 import sys
+import uuid
 import atexit
 import argparse
 import Ice
@@ -16,6 +17,7 @@ import game.common
 import game.screens
 import game.pyxeltools
 import game.orchestration
+import icegauntlettool
 from game.common import LIFE, LEVEL_COUNT, AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE, HEROES,\
     OBJECT_CLASS, OBJECT_TYPE, IDENTIFIER
 
@@ -39,6 +41,7 @@ class RemoteDungeonMap(Ice.Application):
         self.hero = hero
         self.dungeon_servant = None
         self.game_id = str(uuid.uuid4())
+        self._current_area_=None
 
     def run (self, args):
         dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
@@ -64,7 +67,7 @@ class RemoteDungeonMap(Ice.Application):
     @property
     def next_area(self):
         '''To obtain a new room'''
-        if not self.self._current_area_:
+        if not self._current_area_:
             self._current_area_ = RemoteArea(self.dungeon_servant.getEntrance(), self.game_id)
         else:
             self._current_area_ = self._current_area_.dungeon_area.getNextArea()
@@ -84,10 +87,10 @@ class RemoteArea(Ice.Application):
     def __init__(self, dungeon_area, game_id):
         self.game_id=game_id
         self.dungeon_area = dungeon_area
-        self.event_handler = self.__send_event__
-        self.roomName, self.author, roomData = load_json_map(level)
-        self.objects = []
+        self.roomName, self.author, roomData = game.pyxeltools.load_json_map(self.dungeon_area.getMap())
+        self.objects = self.dungeon_area.getItems()
         self.roomData = []
+        self.actors = self.dungeon_area.getActors()
         y = 0
         for row in roomData:
             x = 0
@@ -106,7 +109,7 @@ class RemoteArea(Ice.Application):
 
     def get_topic_manager(self):
         key = 'IceStorm.TopicManager.Proxy'
-        proxy = self.communicator().propertyToProxy(key)
+        proxy = self.communicator().stringToProxy("IceStorm/TopicManager:tcp -p 10000")
         if proxy is None:
             print("property '{}' not set".format(key))
             return None
@@ -122,8 +125,12 @@ class RemoteArea(Ice.Application):
         except IceStorm.NoSuchTopic:
             print("No such topic found, crating")
             topic=topic_mgr.create(topic_name)
-        publisher=topic.getPublisher()
-        self.dungeon_area_sync=IceGauntlet.DungeonAreaSyncPrx.uncheckedCast(publisher)
+        ic = self.communicator()
+        servant = DungeonAreaSyncI(self)
+        adapter = ic.createObjectAdapter("DungeonAreaAdapter")
+        subscriber= adapter.addWithUUID(servant)
+        publisher=topic.subscribeAndGetPublisher({},subscriber)
+        self.dungeon_area_sync_publisher=IceGauntlet.DungeonAreaSyncPrx.uncheckedCast(publisher)
 
     def getMap(self):
         return self.roomName, self.author, self.roomData
@@ -132,17 +139,40 @@ class RemoteArea(Ice.Application):
         return self.objects
 
     def getActors(self):
-        return []
+        return self.actors
     
     def fire_event(self, event, only_local=False):
         if not only_local:
-            self.event_handler(event)
+            self.event_handler(event, self.game_id)
 
     def abandon(self):
         pass
 
-    def __send_event__(self, event):
-        self.dungeon_area_sync.fireEvent(event, self.game_id)
+    def event_handler(self, event, senderId):
+        if self.game_id == senderId:
+            self.dungeon_area_sync_publisher.fireEvent(event, self.game_id)
+        else:
+            if event[0] == "spawn_actor":
+                self.actors.append(event[1:])
+            elif event[0] == "kill_object":
+                self.objects = [obj for obj in self.objects if obj[0] != event[1]]
+                self.actors = [act for act in self.actors if act[0] != event[1]]
+
+            elif event[0] == "open_door":
+                ##door_touched=
+                ##icegauntlettool.search_adjacent_door(door_touched)
+                ##self.actors.append(event[1:])
+                pass
+
+
+class DungeonAreaSyncI(IceGauntlet.DungeonAreaSync):
+    def __init__(self, dungeon_area):
+        self.dungeon_area = dungeon_area
+
+    def fireEvent(self, event, senderId, current=None):
+        event = pickle.loads(event)
+
+        self.dungeon_area.event_handler(event, senderId)
 
 @atexit.register
 # pylint: disable=W0613
