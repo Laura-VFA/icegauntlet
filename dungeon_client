@@ -7,8 +7,11 @@
 '''
 
 import sys
+import uuid
 import atexit
+import json
 import argparse
+import pickle
 import Ice
 import game
 import game.common
@@ -16,10 +19,15 @@ import game.screens
 import game.pyxeltools
 import game.orchestration
 
+from game.common import LIFE, LEVEL_COUNT, AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE, HEROES,\
+    OBJECT_CLASS, OBJECT_TYPE, IDENTIFIER
+from game.pyxeltools import TILE_SIZE, load_json_map
+
 Ice.loadSlice('icegauntlet.ice')
 # pylint: disable=E0401
 # pylint: disable=C0413
 import IceGauntlet
+import IceStorm
 # pylint: enable=E0401
 # pylint: enable=C0413
 
@@ -29,14 +37,76 @@ BAD_COMMAND_LINE = 1
 
 DEFAULT_HERO = game.common.HEROES[0]
 
+class RemoteArea(IceGauntlet.DungeonAreaSync):
+    def __init__(self, remote_area, topic_manager, dungeonAdapter):
+        topic = topic_manager.retrieve(remote_area.getEventChannel())
+        self.publisher = topic.subscribeAndGetPublisher({}, dungeonAdapter.addWithUUID(self))
+        self.publisher = IceGauntlet.DungeonAreaSyncPrx.uncheckedCast(self.publisher)
+        self.remote_area = remote_area
+        self.id = str(uuid.uuid4())
+
+        with open("temp_map.json", 'w') as f:
+            f.write(remote_area.getMap())
+        self.roomName, self.author, roomData = load_json_map("temp_map.json")
+        self.objects = remote_area.getItems()
+        self.objects = [(i.itemId, i.itemType, (i.positionX,  i.positionY)) for i in self.objects]#pass to a list of tuples
+        self.roomData = []
+        y = 0
+        for row in roomData:
+            x = 0
+            filteredRow = []
+            for tile in row:
+                if (tile in AVAILABLE_OBJECT_IDS):
+                    filteredRow.append(EMPTY_TILE)
+                elif (tile == NULL_TILE):
+                    filteredRow.append(EMPTY_TILE)
+                else:
+                    filteredRow.append(tile)
+                x += 1
+            y += 1
+            self.roomData.append(filteredRow)
+
+    def getMap(self):
+        return self.roomName, self.author, self.roomData
+
+    def getObjects(self):
+        return self.objects
+
+    def getActors(self):
+        return self.remote_area.getActors()
+    
+    def fire_event(self, event, only_local=False):
+        ''' Event triggered when something happens in the local game'''
+        if not only_local:
+            self.event_handler(event)
+
+    def abandon(self):
+        pass
+
+    def event_handler(self, event):
+        self.publisher.fireEvent(pickle.dumps(event), self.id)
+
+    def fireEvent(self, event, senderId, current=None):
+        ''' Event triggered when someone publish in the dungeon area topic'''
+        #TODO process the eveent, delete objects...
+        if senderId == self.id:
+            return
+        event = pickle.loads(event)
+        print(event) #events from other players
+
+
 class RemoteDungeonMap(Ice.Application):
     '''Store a list of rooms'''
     def __init__(self, dungeon_proxy, hero):
-        self.dungeon_proxy=dungeon_proxy
+        self.dungeon_proxy = dungeon_proxy
         self.hero = hero
         self.dungeon_servant = None
+        self.current_area = None
 
     def run (self, args):
+        self.topic_mgr = self.get_topic_manager()
+        self.dungeon_adapter = self.communicator().createObjectAdapter('DungeonClientAdapter')
+        self.dungeon_adapter.activate()
         dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
         self.dungeon_servant = IceGauntlet.DungeonPrx.checkedCast(dungeon_proxy)
         if not self.dungeon_servant:
@@ -58,15 +128,29 @@ class RemoteDungeonMap(Ice.Application):
             pass
 
     @property
-    def next_room(self):
+    def next_area(self):
         '''To obtain a new room'''
-        return self.dungeon_servant.getRoom()
+        if self.current_area is None:
+            self.current_area = self.dungeon_servant.getEntrance()
+        else:
+            self.current_area = self.current_area.getNextArea()
 
+        return RemoteArea(self.current_area, self.topic_mgr, self.dungeon_adapter)
 
     @property
     def finished(self):
         '''To know if the game has finished'''
         return False
+
+    def abandon_area(self):
+        pass
+
+    def get_topic_manager(self):
+        proxy = self.communicator().stringToProxy('IceStorm/TopicManager:tcp -p 10000')
+        if proxy is None:
+            print("Invalid topic manager proxy")
+            return None
+        return IceStorm.TopicManagerPrx.checkedCast(proxy)
 
 @atexit.register
 # pylint: disable=W0613
@@ -83,6 +167,7 @@ def parse_commandline():
         '-p', '--player', default=DEFAULT_HERO, choices=game.common.HEROES,
         dest='hero', help='Hero to play with'
     )
+    parser.add_argument('--Ice.Config', type=str)
     options = parser.parse_args()
 
     return options
