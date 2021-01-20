@@ -39,6 +39,7 @@ DEFAULT_HERO = game.common.HEROES[0]
 
 class RemoteArea(IceGauntlet.DungeonAreaSync):
     def __init__(self, remote_area, topic_manager, dungeonAdapter):
+        self.event_handler = self.__handle_event__
         topic = topic_manager.retrieve(remote_area.getEventChannel())
         self.publisher = topic.subscribeAndGetPublisher({}, dungeonAdapter.addWithUUID(self))
         self.publisher = IceGauntlet.DungeonAreaSyncPrx.uncheckedCast(self.publisher)
@@ -76,15 +77,17 @@ class RemoteArea(IceGauntlet.DungeonAreaSync):
         return self.remote_area.getActors()
     
     def fire_event(self, event, only_local=False):
-        ''' Event triggered when something happens in the local game'''
+        print("in client: ", event)
+        self.publisher.fireEvent(pickle.dumps(event), self.id)
+        print('event publshed')
         if not only_local:
             self.event_handler(event)
 
     def abandon(self):
         pass
 
-    def event_handler(self, event):
-        self.publisher.fireEvent(pickle.dumps(event), self.id)
+    def __handle_event__(self, event):
+        pass
 
     def fireEvent(self, event, senderId, current=None):
         ''' Event triggered when someone publish in the dungeon area topic'''
@@ -135,6 +138,7 @@ class RemoteDungeonMap(Ice.Application):
         else:
             self.current_area = self.current_area.getNextArea()
 
+        #return RemoteArea(self.current_area, self.topic_mgr, self.dungeon_adapter)
         return RemoteArea(self.current_area, self.topic_mgr, self.dungeon_adapter)
 
     @property
