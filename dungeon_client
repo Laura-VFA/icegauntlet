@@ -37,21 +37,34 @@ BAD_COMMAND_LINE = 1
 
 DEFAULT_HERO = game.common.HEROES[0]
 
-class RemoteArea(IceGauntlet.DungeonAreaSync):
+class DungeonAreaSync(IceGauntlet.DungeonAreaSync):
+    def __init__(self, event_handler):
+        self.event_handler = event_handler
+
+    def fireEvent(self, event, senderId, current=None):
+        event = pickle.loads(event)
+        self.event_handler(event, senderId)
+
+class RemoteArea:
     def __init__(self, remote_area, topic_manager, dungeonAdapter):
-        self.event_handler = self.__handle_event__
+        self.event_handler = self.__discard_event__
         topic = topic_manager.retrieve(remote_area.getEventChannel())
-        self.publisher = topic.subscribeAndGetPublisher({}, dungeonAdapter.addWithUUID(self))
+
+        self.publisher = topic.getPublisher()
         self.publisher = IceGauntlet.DungeonAreaSyncPrx.uncheckedCast(self.publisher)
+
         self.remote_area = remote_area
         self.id = str(uuid.uuid4())
 
         with open("temp_map.json", 'w') as f:
             f.write(remote_area.getMap())
-        self.roomName, self.author, roomData = load_json_map("temp_map.json")
+
+        self.roomName, self.author, roomData = load_json_map("temp_map.json") #TODO utils class con esta function
         self.objects = remote_area.getItems()
         self.objects = [(i.itemId, i.itemType, (i.positionX,  i.positionY)) for i in self.objects]#pass to a list of tuples
-        self.roomData = []
+        self.actors = remote_area.getActors()
+        self.actors = [(a.actorId, json.loads(a.attributes)) for a in self.actors]
+        self.roomData = [] #TODO get map without objects quiza??
         y = 0
         for row in roomData:
             x = 0
@@ -67,6 +80,9 @@ class RemoteArea(IceGauntlet.DungeonAreaSync):
             y += 1
             self.roomData.append(filteredRow)
 
+        subs = dungeonAdapter.addWithUUID(DungeonAreaSync(self.remote_event_handler))
+        topic.subscribeAndGetPublisher({}, subs)
+
     def getMap(self):
         return self.roomName, self.author, self.roomData
 
@@ -74,28 +90,28 @@ class RemoteArea(IceGauntlet.DungeonAreaSync):
         return self.objects
 
     def getActors(self):
-        return self.remote_area.getActors()
+        return self.actors
     
     def fire_event(self, event, only_local=False):
-        print("in client: ", event)
         self.publisher.fireEvent(pickle.dumps(event), self.id)
-        print('event publshed')
         if not only_local:
             self.event_handler(event)
 
     def abandon(self):
         pass
 
-    def __handle_event__(self, event):
+    def __discard_event__(self, event):
         pass
 
-    def fireEvent(self, event, senderId, current=None):
+    def remote_event_handler(self, event, senderId):
         ''' Event triggered when someone publish in the dungeon area topic'''
-        #TODO process the eveent, delete objects...
+        
         if senderId == self.id:
             return
-        event = pickle.loads(event)
-        print(event) #events from other players
+        
+        if event[0] in ['spawn_actor', 'kill_object', 'open_door']: #filter desired events
+            print('remote',event)
+            self.event_handler(event)
 
 
 class RemoteDungeonMap(Ice.Application):
@@ -108,6 +124,9 @@ class RemoteDungeonMap(Ice.Application):
 
     def run (self, args):
         self.topic_mgr = self.get_topic_manager()
+        if not self.topic_mgr:
+            print('Invalid topic manager proxy')
+            return 1
         self.dungeon_adapter = self.communicator().createObjectAdapter('DungeonClientAdapter')
         self.dungeon_adapter.activate()
         dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
@@ -137,8 +156,6 @@ class RemoteDungeonMap(Ice.Application):
             self.current_area = self.dungeon_servant.getEntrance()
         else:
             self.current_area = self.current_area.getNextArea()
-
-        #return RemoteArea(self.current_area, self.topic_mgr, self.dungeon_adapter)
         return RemoteArea(self.current_area, self.topic_mgr, self.dungeon_adapter)
 
     @property
@@ -150,7 +167,7 @@ class RemoteDungeonMap(Ice.Application):
         pass
 
     def get_topic_manager(self):
-        proxy = self.communicator().stringToProxy('IceStorm/TopicManager:tcp -p 10000')
+        proxy = self.communicator().propertyToProxy('IceStorm.TopicManager.Proxy')
         if proxy is None:
             print("Invalid topic manager proxy")
             return None
