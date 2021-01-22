@@ -7,7 +7,6 @@
     ICE Gauntlet REMOTE GAME
 '''
 
-from __future__ import print_function
 import sys
 import uuid
 import atexit
@@ -66,7 +65,7 @@ class RemoteArea:
         self.client_id = str(uuid.uuid4())
 
         with open("temp_map.json", 'w') as temp_map:
-            temp_map.write(remote_area.get_Map())
+            temp_map.write(remote_area.getMap())
 
         self.room_name, self.author, room_data = load_json_map("temp_map.json") #TODO utils class con esta function
         self.objects = remote_area.getItems()
@@ -105,7 +104,7 @@ class RemoteArea:
         '''Returns the list of actors currently in the map'''
         return self.actors
 
-    def fireEvent(self, event, only_local=False):
+    def fire_event(self, event, only_local=False):
         '''Fires the event through the publisher'''
         self.publisher.fireEvent(pickle.dumps(event), self.client_id)
         if not only_local:
@@ -127,8 +126,10 @@ class RemoteArea:
 
         if event[0] in ['spawn_actor', 'kill_object', 'open_door']: #filter desired events
             print('remote', event)
-            self.event_handler(event)
-
+            if event[0] == 'spawn_actor' and isinstance(event[2], str):
+                self.event_handler((event[0], event[1], json.loads(event[2])))
+            else:
+                self.event_handler(event)
 
 class RemoteDungeonMap(Ice.Application):
     '''Store a list of rooms'''
