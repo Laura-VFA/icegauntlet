@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# pylint: disable=W1203
+#
+# pylint: disable=W0613
 
 '''
     ICE Gauntlet REMOTE GAME
@@ -12,22 +13,22 @@ import atexit
 import json
 import argparse
 import pickle
-import Ice
 import game
 import game.common
 import game.screens
 import game.pyxeltools
 import game.orchestration
 
-from game.common import LIFE, LEVEL_COUNT, AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE, HEROES,\
-    OBJECT_CLASS, OBJECT_TYPE, IDENTIFIER
-from game.pyxeltools import TILE_SIZE, load_json_map
+from game.common import AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE
+from game.pyxeltools import load_json_map
 
-Ice.loadSlice('icegauntlet.ice')
+
 # pylint: disable=E0401
 # pylint: disable=C0413
-import IceGauntlet
+import Ice
 import IceStorm
+Ice.loadSlice('icegauntlet.ice')
+import IceGauntlet
 # pylint: enable=E0401
 # pylint: enable=C0413
 
@@ -38,15 +39,22 @@ BAD_COMMAND_LINE = 1
 DEFAULT_HERO = game.common.HEROES[0]
 
 class DungeonAreaSync(IceGauntlet.DungeonAreaSync):
+    '''
+    Class that implements the interface to communicate via the event channel
+    '''
     def __init__(self, event_handler):
         self.event_handler = event_handler
 
-    def fireEvent(self, event, senderId, current=None):
+    def fire_event(self, event, sender_id, current=None):
+        '''Loads the event and calls the event handler'''
         event = pickle.loads(event)
-        self.event_handler(event, senderId)
+        self.event_handler(event, sender_id)
 
 class RemoteArea:
-    def __init__(self, remote_area, topic_manager, dungeonAdapter):
+    '''
+    Area class to handle events
+    '''
+    def __init__(self, remote_area, topic_manager, dungeon_adapter):
         self.event_handler = self.__discard_event__
         topic = topic_manager.retrieve(remote_area.getEventChannel())
 
@@ -54,63 +62,70 @@ class RemoteArea:
         self.publisher = IceGauntlet.DungeonAreaSyncPrx.uncheckedCast(self.publisher)
 
         self.remote_area = remote_area
-        self.id = str(uuid.uuid4())
+        self.client_id = str(uuid.uuid4())
 
-        with open("temp_map.json", 'w') as f:
-            f.write(remote_area.getMap())
+        with open("temp_map.json", 'w') as temp_map:
+            temp_map.write(remote_area.get_Map())
 
-        self.roomName, self.author, roomData = load_json_map("temp_map.json") #TODO utils class con esta function
+        self.room_name, self.author, room_data = load_json_map("temp_map.json") #TODO utils class con esta function
         self.objects = remote_area.getItems()
-        self.objects = [(i.itemId, i.itemType, (i.positionX,  i.positionY)) for i in self.objects]#pass to a list of tuples
+        #pass to a list of tuples
+        self.objects = [(i.itemId, i.itemType, (i.positionX, i.positionY)) for i in self.objects]
         self.actors = remote_area.getActors()
         self.actors = [(a.actorId, json.loads(a.attributes)) for a in self.actors]
-        self.roomData = [] #TODO get map without objects quiza??
-        y = 0
-        for row in roomData:
-            x = 0
-            filteredRow = []
+        self.room_data = [] #TODO get map without objects quiza??
+        y_position = 0
+        for row in room_data:
+            x_position = 0
+            filtered_row = []
             for tile in row:
-                if (tile in AVAILABLE_OBJECT_IDS):
-                    filteredRow.append(EMPTY_TILE)
-                elif (tile == NULL_TILE):
-                    filteredRow.append(EMPTY_TILE)
+                if tile in AVAILABLE_OBJECT_IDS:
+                    filtered_row.append(EMPTY_TILE)
+                elif tile == NULL_TILE:
+                    filtered_row.append(EMPTY_TILE)
                 else:
-                    filteredRow.append(tile)
-                x += 1
-            y += 1
-            self.roomData.append(filteredRow)
+                    filtered_row.append(tile)
+                x_position += 1
+            y_position += 1
+            self.room_data.append(filtered_row)
 
-        subs = dungeonAdapter.addWithUUID(DungeonAreaSync(self.remote_event_handler))
+        subs = dungeon_adapter.addWithUUID(DungeonAreaSync(self.remote_event_handler))
         topic.subscribeAndGetPublisher({}, subs)
 
     def getMap(self):
-        return self.roomName, self.author, self.roomData
+        '''Obtains the map data pertaining to the area'''
+        return self.room_name, self.author, self.room_data
 
     def getObjects(self):
+        '''Returns the current object list in the map'''
         return self.objects
 
     def getActors(self):
+        '''Returns the list of actors currently in the map'''
         return self.actors
-    
+
     def fire_event(self, event, only_local=False):
-        self.publisher.fireEvent(pickle.dumps(event), self.id)
+        '''Fires the event through the publisher'''
+        self.publisher.fire_event(pickle.dumps(event), self.client_id)
         if not only_local:
             self.event_handler(event)
 
     def abandon(self):
+        ''' '''
         pass
 
     def __discard_event__(self, event):
+        '''Discards the event without doing anything'''
         pass
 
-    def remote_event_handler(self, event, senderId):
+    def remote_event_handler(self, event, sender_id):
         ''' Event triggered when someone publish in the dungeon area topic'''
-        
-        if senderId == self.id:
+
+        if sender_id == self.client_id:
             return
-        
+
         if event[0] in ['spawn_actor', 'kill_object', 'open_door']: #filter desired events
-            print('remote',event)
+            print('remote', event)
             self.event_handler(event)
 
 
@@ -121,12 +136,15 @@ class RemoteDungeonMap(Ice.Application):
         self.hero = hero
         self.dungeon_servant = None
         self.current_area = None
+        self.dungeon_adapter = None
+        self.topic_mgr = None
 
-    def run (self, args):
+    def run(self, args):
+        '''Launch the game'''
         self.topic_mgr = self.get_topic_manager()
         if not self.topic_mgr:
-            print('Invalid topic manager proxy')
-            return 1
+            print 'Invalid topic manager proxy'
+            return
         self.dungeon_adapter = self.communicator().createObjectAdapter('DungeonClientAdapter')
         self.dungeon_adapter.activate()
         dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
@@ -164,12 +182,14 @@ class RemoteDungeonMap(Ice.Application):
         return False
 
     def abandon_area(self):
+        '''To abandon the area when going to a new one'''
         pass
 
     def get_topic_manager(self):
+        '''To obtain the topic manager'''
         proxy = self.communicator().propertyToProxy('IceStorm.TopicManager.Proxy')
         if proxy is None:
-            print("Invalid topic manager proxy")
+            print "Invalid topic manager proxy"
             return None
         return IceStorm.TopicManagerPrx.checkedCast(proxy)
 
@@ -177,13 +197,13 @@ class RemoteDungeonMap(Ice.Application):
 # pylint: disable=W0613
 def bye(*args, **kwargs):
     '''Exit callback, use for shoutdown'''
-    print('Thanks for playing!')
+    print 'Thanks for playing!'
 # pylint: enable=W0613
 
 def parse_commandline():
     '''Parse and check commandline'''
     parser = argparse.ArgumentParser('IceDungeon Local Game')
-    parser.add_argument('PROXY', type=str, help = 'proxy of the Map server')
+    parser.add_argument('PROXY', type=str, help='proxy of the Map server')
     parser.add_argument(
         '-p', '--player', default=DEFAULT_HERO, choices=game.common.HEROES,
         dest='hero', help='Hero to play with'
