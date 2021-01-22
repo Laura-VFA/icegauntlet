@@ -7,12 +7,14 @@
     ICE Gauntlet REMOTE GAME
 '''
 
+from __future__ import print_function
 import sys
 import uuid
 import atexit
 import json
 import argparse
 import pickle
+import Ice
 import game
 import game.common
 import game.screens
@@ -25,7 +27,6 @@ from game.pyxeltools import load_json_map
 
 # pylint: disable=E0401
 # pylint: disable=C0413
-import Ice
 import IceStorm
 Ice.loadSlice('icegauntlet.ice')
 import IceGauntlet
@@ -45,10 +46,10 @@ class DungeonAreaSync(IceGauntlet.DungeonAreaSync):
     def __init__(self, event_handler):
         self.event_handler = event_handler
 
-    def fire_event(self, event, sender_id, current=None):
+    def fireEvent(self, event, senderId, current=None):
         '''Loads the event and calls the event handler'''
         event = pickle.loads(event)
-        self.event_handler(event, sender_id)
+        self.event_handler(event, senderId)
 
 class RemoteArea:
     '''
@@ -104,14 +105,14 @@ class RemoteArea:
         '''Returns the list of actors currently in the map'''
         return self.actors
 
-    def fire_event(self, event, only_local=False):
+    def fireEvent(self, event, only_local=False):
         '''Fires the event through the publisher'''
-        self.publisher.fire_event(pickle.dumps(event), self.client_id)
+        self.publisher.fireEvent(pickle.dumps(event), self.client_id)
         if not only_local:
             self.event_handler(event)
 
     def abandon(self):
-        ''' '''
+        '''Method to abandon area'''
         pass
 
     def __discard_event__(self, event):
@@ -143,8 +144,8 @@ class RemoteDungeonMap(Ice.Application):
         '''Launch the game'''
         self.topic_mgr = self.get_topic_manager()
         if not self.topic_mgr:
-            print 'Invalid topic manager proxy'
-            return
+            print('Invalid topic manager proxy')
+            return 1
         self.dungeon_adapter = self.communicator().createObjectAdapter('DungeonClientAdapter')
         self.dungeon_adapter.activate()
         dungeon_proxy = self.communicator().stringToProxy(self.dungeon_proxy)
@@ -189,7 +190,7 @@ class RemoteDungeonMap(Ice.Application):
         '''To obtain the topic manager'''
         proxy = self.communicator().propertyToProxy('IceStorm.TopicManager.Proxy')
         if proxy is None:
-            print "Invalid topic manager proxy"
+            print("Invalid topic manager proxy")
             return None
         return IceStorm.TopicManagerPrx.checkedCast(proxy)
 
@@ -197,7 +198,7 @@ class RemoteDungeonMap(Ice.Application):
 # pylint: disable=W0613
 def bye(*args, **kwargs):
     '''Exit callback, use for shoutdown'''
-    print 'Thanks for playing!'
+    print('Thanks for playing!')
 # pylint: enable=W0613
 
 def parse_commandline():
