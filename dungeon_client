@@ -14,15 +14,6 @@ import json
 import argparse
 import pickle
 import Ice
-import game
-import game.common
-import game.screens
-import game.pyxeltools
-import game.orchestration
-
-from game.common import AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE
-from game.pyxeltools import load_json_map
-
 
 # pylint: disable=E0401
 # pylint: disable=C0413
@@ -32,6 +23,14 @@ import IceGauntlet
 # pylint: enable=E0401
 # pylint: enable=C0413
 
+import game
+import game.common
+import game.screens
+import game.pyxeltools
+import game.orchestration
+
+from game.common import AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE
+from game.pyxeltools import load_json_map
 
 EXIT_OK = 0
 BAD_COMMAND_LINE = 1
@@ -73,7 +72,7 @@ class RemoteArea:
         self.objects = [(i.itemId, i.itemType, (i.positionX, i.positionY)) for i in self.objects]
         self.actors = remote_area.getActors()
         self.actors = [(a.actorId, json.loads(a.attributes)) for a in self.actors]
-        self.room_data = [] #TODO get map without objects quiza??
+        self.room_data = []
         y_position = 0
         for row in room_data:
             x_position = 0
@@ -193,7 +192,9 @@ class RemoteDungeonMap(Ice.Application):
         if proxy is None:
             print("Invalid topic manager proxy")
             return None
+        # pylint: disable=E1101
         return IceStorm.TopicManagerPrx.checkedCast(proxy)
+        # pylint: enable=C0413
 
 @atexit.register
 # pylint: disable=W0613
