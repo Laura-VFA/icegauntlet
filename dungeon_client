@@ -29,7 +29,6 @@ import game.screens
 import game.pyxeltools
 import game.orchestration
 
-from game.common import AVAILABLE_OBJECT_IDS, EMPTY_TILE, NULL_TILE
 from game.pyxeltools import load_json_map
 
 EXIT_OK = 0
@@ -66,27 +65,12 @@ class RemoteArea:
         with open("temp_map.json", 'w') as temp_map:
             temp_map.write(remote_area.getMap())
 
-        self.room_name, self.author, room_data = load_json_map("temp_map.json")
+        self.room_name, self.author, self.room_data = load_json_map("temp_map.json")
         self.objects = remote_area.getItems()
         #pass to a list of tuples
         self.objects = [(i.itemId, i.itemType, (i.positionX, i.positionY)) for i in self.objects]
         self.actors = remote_area.getActors()
         self.actors = [(a.actorId, json.loads(a.attributes)) for a in self.actors]
-        self.room_data = []
-        y_position = 0
-        for row in room_data:
-            x_position = 0
-            filtered_row = []
-            for tile in row:
-                if tile in AVAILABLE_OBJECT_IDS:
-                    filtered_row.append(EMPTY_TILE)
-                elif tile == NULL_TILE:
-                    filtered_row.append(EMPTY_TILE)
-                else:
-                    filtered_row.append(tile)
-                x_position += 1
-            y_position += 1
-            self.room_data.append(filtered_row)
 
         subs = dungeon_adapter.addWithUUID(DungeonAreaSync(self.remote_event_handler))
         topic.subscribeAndGetPublisher({}, subs)
